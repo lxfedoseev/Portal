@@ -31,17 +31,21 @@
 import UIKit
 import ARKit
 
+let POSITION_Y: CGFloat = -WALL_HEIGHT*0.5
+let POSITION_Z: CGFloat = -SURFACE_LENGTH*0.5
+let DOOR_WIDTH:CGFloat = 1.0
+let DOOR_HEIGHT:CGFloat = 2.4
+
 class PortalViewController: UIViewController {
 
+  @IBOutlet weak var crosshair: UIView!
   @IBOutlet var sceneView: ARSCNView?
   @IBOutlet weak var messageLabel: UILabel?
   @IBOutlet weak var sessionStateLabel: UILabel?
   
-    @IBOutlet weak var crosshair: UIView!
   var portalNode: SCNNode? = nil
   var isPortalPlaced = false
-  
-    var debugPlanes: [SCNNode] = []
+  var debugPlanes: [SCNNode] = []
   var viewCenter: CGPoint {
     let viewBounds = view.bounds
     return CGPoint(x: viewBounds.width / 2.0, y: viewBounds.height / 2.0)
@@ -53,44 +57,65 @@ class PortalViewController: UIViewController {
     runSession()
   }
 
-  func makePortal() -> SCNNode {
-    // 1
-    let portal = SCNNode()
-    // 2
-    let box = SCNBox(width: 1.0,
-                     height: 1.0,
-                     length: 1.0,
-                     chamferRadius: 0)
-    let boxNode = SCNNode(geometry: box)
-    // 3
-    portal.addChildNode(boxNode)
-    return portal
-  }
-  
-  // 1
-  override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?)
-  {
-    // 2
-    if let hit = sceneView?.hitTest(viewCenter, types:
-      [.existingPlaneUsingExtent]).first {
-      // 3
-      sceneView?.session.add(anchor: ARAnchor.init(transform:
-        hit.worldTransform))
-    } }
-  
   func runSession() {
     let configuration = ARWorldTrackingConfiguration.init()
     configuration.planeDetection = .horizontal
     configuration.isLightEstimationEnabled = true
 
     sceneView?.session.run(configuration,
-                           options: [.resetTracking, .removeExistingAnchors])
+                           options: [.resetTracking, .removeExistingAnchors])  
 
     #if DEBUG
       sceneView?.debugOptions = [SCNDebugOptions.showFeaturePoints]
     #endif
 
     sceneView?.delegate = self
+  }
+  
+  func placeLightSource(rootNode: SCNNode) {
+    // 1
+    let light = SCNLight()
+    light.intensity = 10
+    // 2
+    light.type = .omni
+    // 3
+    let lightNode = SCNNode()
+    lightNode.light = light
+    // 4
+    lightNode.position = SCNVector3(0,
+                                    POSITION_Y+WALL_HEIGHT,
+                                    POSITION_Z)
+    rootNode.addChildNode(lightNode)
+  }
+  
+  func addDoorway(node: SCNNode) {
+    // 1
+    let halfWallLength: CGFloat = WALL_LENGTH * 0.5
+    let frontHalfWallLength: CGFloat = (WALL_LENGTH - DOOR_WIDTH) * 0.5
+    // 2
+    let rightDoorSideNode = makeWallNode(length: frontHalfWallLength)
+    rightDoorSideNode.eulerAngles = SCNVector3(0,270.0.degreesToRadians, 0)
+    rightDoorSideNode.position = SCNVector3(halfWallLength - 0.5 * DOOR_WIDTH, POSITION_Y+WALL_HEIGHT*0.5,
+                                            POSITION_Z+SURFACE_LENGTH*0.5)
+    node.addChildNode(rightDoorSideNode)
+      // 3
+    
+    let leftDoorSideNode = makeWallNode(length: frontHalfWallLength)
+    leftDoorSideNode.eulerAngles = SCNVector3(0, 270.0.degreesToRadians, 0)
+    leftDoorSideNode.position = SCNVector3(-halfWallLength + 0.5 *
+      frontHalfWallLength,
+                                           POSITION_Y+WALL_HEIGHT*0.5,
+                                           POSITION_Z+SURFACE_LENGTH*0.5)
+    node.addChildNode(leftDoorSideNode)
+    
+    // 1
+    let aboveDoorNode = makeWallNode(length: DOOR_WIDTH, height: WALL_HEIGHT - DOOR_HEIGHT)
+    aboveDoorNode.eulerAngles = SCNVector3(0, 270.0.degreesToRadians, 0)
+    // 3
+    aboveDoorNode.position =
+      SCNVector3(0, POSITION_Y+(WALL_HEIGHT-DOOR_HEIGHT)*0.5+DOOR_HEIGHT,
+                 POSITION_Z+SURFACE_LENGTH*0.5)
+    node.addChildNode(aboveDoorNode)
   }
   
   func resetLabels() {
@@ -100,28 +125,24 @@ class PortalViewController: UIViewController {
     sessionStateLabel?.text = ""
   }
   
-  // 1
   func showMessage(_ message: String, label: UILabel, seconds: Double) {
     label.text = message
     label.alpha = 1
+    
     DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
       if label.text == message {
         label.text = ""
         label.alpha = 0
       }
-    } }
+    }
+  }
   
-  // 2
   func removeAllNodes() {
-    // 1
     removeDebugPlanes()
-    // 2
     self.portalNode?.removeFromParentNode()
-    // 3
     self.isPortalPlaced = false
   }
   
-  // 3
   func removeDebugPlanes() {
     for debugPlaneNode in self.debugPlanes {
       debugPlaneNode.removeFromParentNode()
@@ -129,78 +150,97 @@ class PortalViewController: UIViewController {
     self.debugPlanes = []
   }
   
+  override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+    if let hit = sceneView?.hitTest(viewCenter, types: [.existingPlaneUsingExtent]).first {
+      sceneView?.session.add(anchor: ARAnchor.init(transform: hit.worldTransform))
+    }
+  }
+  
+  func makePortal() -> SCNNode {
+    // 1
+    let portal = SCNNode()
+    // 2
+    let floorNode = makeFloorNode()
+    floorNode.position = SCNVector3(0, POSITION_Y, POSITION_Z)
+    // 3
+    portal.addChildNode(floorNode)
+    
+    // 1
+    let ceilingNode = makeCeilingNode()
+    ceilingNode.position = SCNVector3(0, POSITION_Y+WALL_HEIGHT,POSITION_Z)
+    portal.addChildNode(ceilingNode)
+    
+    // 1
+    let farWallNode = makeWallNode()
+    // 2
+    farWallNode.eulerAngles = SCNVector3(0, 90.0.degreesToRadians, 0)
+    // 3
+    farWallNode.position = SCNVector3(0, POSITION_Y+WALL_HEIGHT*0.5, POSITION_Z-SURFACE_LENGTH*0.5)
+     portal.addChildNode(farWallNode)
+    
+    // 1
+    let rightSideWallNode = makeWallNode(maskLowerSide: true)
+    // 2
+    rightSideWallNode.eulerAngles = SCNVector3(0, 180.0.degreesToRadians, 0)
+    // 3
+    rightSideWallNode.position = SCNVector3(WALL_LENGTH*0.5,
+                                            POSITION_Y+WALL_HEIGHT*0.5,
+                                            POSITION_Z)
+    portal.addChildNode(rightSideWallNode)
+    // 4
+    let leftSideWallNode = makeWallNode(maskLowerSide: true)
+    // 5
+    leftSideWallNode.position = SCNVector3(-WALL_LENGTH*0.5,
+                                           POSITION_Y+WALL_HEIGHT*0.5,
+                                           POSITION_Z)
+    portal.addChildNode(leftSideWallNode)
+    
+    addDoorway(node: portal)
+    placeLightSource(rootNode: portal)
+    return portal
+  }
+  
 }
 
 extension PortalViewController: ARSCNViewDelegate {
   
-  // 1
-  func session(_ session: ARSession, didFailWithError error: Error) {
-    // 2
-    guard let label = self.sessionStateLabel else { return }
-    showMessage(error.localizedDescription, label: label, seconds: 3)
-  }
-  // 3
-  func sessionWasInterrupted(_ session: ARSession) {
-    guard let label = self.sessionStateLabel else { return }
-    showMessage("Session interrupted", label: label, seconds: 3)
-  }
-  // 4
-  func sessionInterruptionEnded(_ session: ARSession) {
-    // 5
-    guard let label = self.sessionStateLabel else { return }
-    showMessage("Session resumed", label: label, seconds: 3)
-    // 6
+  func renderer(_ renderer: SCNSceneRenderer, didAdd node: SCNNode, for anchor: ARAnchor) {
     DispatchQueue.main.async {
-      self.removeAllNodes()
-      self.resetLabels()
-    }
-    // 7
-    runSession()
-  }
-  
-  func renderer(_ renderer: SCNSceneRenderer, didAdd node: SCNNode, for
-    anchor: ARAnchor) {
-    DispatchQueue.main.async {
-      // 1
-      if let planeAnchor = anchor as? ARPlaneAnchor,
-        !self.isPortalPlaced {
+      if let planeAnchor = anchor as? ARPlaneAnchor, !self.isPortalPlaced {
         #if DEBUG
-        let debugPlaneNode = createPlaneNode(
-          center: planeAnchor.center,
-          extent: planeAnchor.extent)
-        node.addChildNode(debugPlaneNode)
-        self.debugPlanes.append(debugPlaneNode)
+          let debugPlaneNode = createPlaneNode(
+            center: planeAnchor.center,
+            extent: planeAnchor.extent)
+          node.addChildNode(debugPlaneNode)
+          self.debugPlanes.append(debugPlaneNode)
         #endif
         self.messageLabel?.alpha = 1.0
-        self.messageLabel?.text = """
-        Tap on the detected \
-        horizontal plane to place the portal
-        """
+        self.messageLabel?.text = "Tap on the detected horizontal plane to place the portal"
       }
-      else if !self.isPortalPlaced {// 2
-        // 3
+      else if !self.isPortalPlaced {
+        
         self.portalNode = self.makePortal()
         if let portal = self.portalNode {
-          // 4
           node.addChildNode(portal)
           self.isPortalPlaced = true
-          // 5
+          
           self.removeDebugPlanes()
           self.sceneView?.debugOptions = []
-          // 6
+          
           DispatchQueue.main.async {
             self.messageLabel?.text = ""
             self.messageLabel?.alpha = 0
           }
         }
-      } }
+        
+      }
+    }
   }
- 
+  
   func renderer(_ renderer: SCNSceneRenderer,
                 didUpdate node: SCNNode,
                 for anchor: ARAnchor) {
     DispatchQueue.main.async {
-      // 7
       if let planeAnchor = anchor as? ARPlaneAnchor,
         node.childNodes.count > 0,
         !self.isPortalPlaced {
@@ -211,19 +251,37 @@ extension PortalViewController: ARSCNViewDelegate {
     }
   }
   
-  // 1
   func renderer(_ renderer: SCNSceneRenderer,
-                // 2
-    updateAtTime time: TimeInterval) {
+                updateAtTime time: TimeInterval) {
     DispatchQueue.main.async {
-      // 3
       if let _ = self.sceneView?.hitTest(self.viewCenter,
                                          types: [.existingPlaneUsingExtent]).first {
         self.crosshair.backgroundColor = UIColor.green
-      } else { // 4
+      } else {
         self.crosshair.backgroundColor = UIColor.lightGray
       }
-    } }
+    }
+  }
   
+  func session(_ session: ARSession, didFailWithError error: Error) {
+    guard let label = self.sessionStateLabel else { return }
+    showMessage(error.localizedDescription, label: label, seconds: 3)
+  }
+  
+  func sessionWasInterrupted(_ session: ARSession) {
+    guard let label = self.sessionStateLabel else { return }
+    showMessage("Session interrupted", label: label, seconds: 3)
+  }
+
+  func sessionInterruptionEnded(_ session: ARSession) {
+    guard let label = self.sessionStateLabel else { return }
+    showMessage("Session resumed", label: label, seconds: 3)
+    
+    DispatchQueue.main.async {
+      self.removeAllNodes()
+      self.resetLabels()
+    }
+    runSession()
+  }
   
 }
